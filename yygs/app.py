@@ -2,6 +2,7 @@ import streamlit as st
 from datetime import datetime
 from html import escape
 import base64
+import random
 
 
 st.set_page_config(page_title="YYGS Connect", page_icon="🌐", layout="wide", initial_sidebar_state="collapsed")
@@ -79,6 +80,9 @@ SPACES = [
     {"id": 6, "icon": "PS", "name": "Public Speaking", "category": "Skills", "members": 64, "description": "Practice speeches, share feedback, and become a more confident speaker."},
 ]
 
+COUNTRIES = ["Afghanistan", "Albania", "Algeria", "Andorra", "Angola", "Antigua and Barbuda", "Argentina", "Armenia", "Australia", "Austria", "Azerbaijan", "Bahamas", "Bahrain", "Bangladesh", "Barbados", "Belarus", "Belgium", "Belize", "Benin", "Bhutan", "Bolivia", "Bosnia and Herzegovina", "Botswana", "Brazil", "Brunei", "Bulgaria", "Burkina Faso", "Burundi", "Cabo Verde", "Cambodia", "Cameroon", "Canada", "Central African Republic", "Chad", "Chile", "China", "Colombia", "Comoros", "Costa Rica", "Côte d’Ivoire", "Croatia", "Cuba", "Cyprus", "Czechia", "Democratic Republic of the Congo", "Denmark", "Djibouti", "Dominica", "Dominican Republic", "Ecuador", "Egypt", "El Salvador", "Equatorial Guinea", "Eritrea", "Estonia", "Eswatini", "Ethiopia", "Fiji", "Finland", "France", "Gabon", "Gambia", "Georgia", "Germany", "Ghana", "Greece", "Grenada", "Guatemala", "Guinea", "Guinea-Bissau", "Guyana", "Haiti", "Honduras", "Hungary", "Iceland", "India", "Indonesia", "Iran", "Iraq", "Ireland", "Israel", "Italy", "Jamaica", "Japan", "Jordan", "Kazakhstan", "Kenya", "Kiribati", "Kuwait", "Kyrgyzstan", "Laos", "Latvia", "Lebanon", "Lesotho", "Liberia", "Libya", "Liechtenstein", "Lithuania", "Luxembourg", "Madagascar", "Malawi", "Malaysia", "Maldives", "Mali", "Malta", "Marshall Islands", "Mauritania", "Mauritius", "Mexico", "Micronesia", "Moldova", "Monaco", "Mongolia", "Montenegro", "Morocco", "Mozambique", "Myanmar", "Namibia", "Nauru", "Nepal", "Netherlands", "New Zealand", "Nicaragua", "Niger", "Nigeria", "North Korea", "North Macedonia", "Norway", "Oman", "Pakistan", "Palau", "Palestine", "Panama", "Papua New Guinea", "Paraguay", "Peru", "Philippines", "Poland", "Portugal", "Qatar", "Republic of the Congo", "Romania", "Russia", "Rwanda", "Saint Kitts and Nevis", "Saint Lucia", "Saint Vincent and the Grenadines", "Samoa", "San Marino", "São Tomé and Príncipe", "Saudi Arabia", "Senegal", "Serbia", "Seychelles", "Sierra Leone", "Singapore", "Slovakia", "Slovenia", "Solomon Islands", "Somalia", "South Africa", "South Korea", "South Sudan", "Spain", "Sri Lanka", "Sudan", "Suriname", "Sweden", "Switzerland", "Syria", "Taiwan", "Tajikistan", "Tanzania", "Thailand", "Timor-Leste", "Togo", "Tonga", "Trinidad and Tobago", "Tunisia", "Türkiye", "Turkmenistan", "Tuvalu", "Uganda", "Ukraine", "United Arab Emirates", "United Kingdom", "United States", "Uruguay", "Uzbekistan", "Vanuatu", "Vatican City", "Venezuela", "Vietnam", "Yemen", "Zambia", "Zimbabwe", "Other"]
+INTERESTS = ["Artificial Intelligence", "Biology", "Climate", "Debate", "Entrepreneurship", "Music", "Photography", "Public Speaking", "Sports", "Writing"]
+
 STARTER_POSTS = [
     {"id": 1, "initials": "AM", "author": "Amara Mensah", "meta": "IST 2026 · 18 min ago", "space": "AI & Society", "text": "Anyone interested in forming a small team for the responsible AI design challenge? I’m especially looking for someone who enjoys visual design!", "reactions": {"❤️": 8, "👏": 5, "💡": 12}, "comments": 4},
     {"id": 2, "initials": "LK", "author": "Leo Kim", "meta": "Session II · 42 min ago", "space": "Campus Sports", "text": "Spikeball at 12:30 on Old Campus! We have one set and need at least four more people. Beginners are very welcome ☀️", "reactions": {"👍": 14, "🎉": 6}, "comments": 7},
@@ -99,7 +103,9 @@ def init_state():
             {"id": 1, "time": "12:30 PM", "title": "Spikeball", "location": "Old Campus", "going": 8, "joined": False},
             {"id": 2, "time": "3:00 PM", "title": "AI ethics circle", "location": "WLH 201", "going": 16, "joined": True},
             {"id": 3, "time": "7:30 PM", "title": "Open mic night", "location": "Common Room", "going": 31, "joined": False}],
-        "onboarding_step": 1, "interest_index": 0, "joined": {1, 2, 3}, "posts": STARTER_POSTS.copy(), "reacted": set(),
+        "onboarding_step": 1, "joined": {1, 2, 3}, "posts": STARTER_POSTS.copy(), "reacted": set(),
+        "communications_mode": "Private chats", "reply_open": set(), "compose_open": False,
+        "event_filter": "All", "game_rooms": [], "selected_game": "Mafia",
         "active_space": "IST 2026", "active_chat": "Amara Mensah",
         "inbox": {
             "Amara Mensah": {"initials": "AM", "detail": "IST · Ghana", "unread": 2, "messages": [
@@ -165,9 +171,9 @@ def onboarding():
     st.caption(f"PROFILE SETUP · STEP {step} OF 4")
     if step == 1:
         st.markdown("## Where are you joining us from?")
-        st.write("Choose your home country to begin your profile and represent your corner of the global cohort.")
-        countries = ["Argentina", "Australia", "Brazil", "Canada", "Chile", "China", "Colombia", "Egypt", "France", "Germany", "Ghana", "India", "Indonesia", "Italy", "Japan", "Kenya", "Mexico", "Morocco", "Netherlands", "Nigeria", "Pakistan", "Peru", "Philippines", "Poland", "Singapore", "South Africa", "South Korea", "Spain", "Sweden", "Thailand", "Turkey", "Ukraine", "United Kingdom", "United States", "Vietnam", "Other"]
-        st.session_state.country = st.selectbox("Country or region", countries, index=countries.index(st.session_state.country))
+        st.write("Open the list and type the first few letters to jump directly to a country.")
+        current_country = st.session_state.country if st.session_state.country in COUNTRIES else "Other"
+        st.session_state.country = st.selectbox("Country or region", COUNTRIES, index=COUNTRIES.index(current_country), help="This list is searchable—start typing after opening it.")
         st.markdown('<div class="card"><div class="eyebrow">Your global cohort</div><h3>One campus. Dozens of perspectives.</h3><div class="muted">Location gives classmates an easy conversation starter and shows the reach of your session.</div></div>', unsafe_allow_html=True)
     elif step == 2:
         st.markdown("## Choose your academic track")
@@ -181,41 +187,18 @@ def onboarding():
                     st.session_state.track = code
                     st.rerun()
     elif step == 3:
-        st.markdown("## Discover your interests")
-        st.write("Move through one topic at a time. Save the ones you would genuinely want to discuss with another student.")
-        options = ["Artificial Intelligence", "Biology", "Climate", "Debate", "Entrepreneurship", "Music", "Photography", "Public Speaking", "Sports", "Writing"]
-        descriptions = {"Artificial Intelligence": "Technology, ethics, creativity, and how intelligent systems affect society.", "Biology": "Living systems, medicine, genetics, and discoveries that improve health.", "Climate": "Environmental solutions, sustainability, policy, and planetary health.", "Debate": "Reasoning clearly, hearing opposing views, and making a persuasive case.", "Entrepreneurship": "Turning an idea into something useful through design, leadership, and action.", "Music": "Performance, production, songwriting, and the cultures formed around sound.", "Photography": "Visual storytelling, observation, composition, and documenting the YYGS experience.", "Public Speaking": "Sharing ideas with confidence, presence, clarity, and purpose.", "Sports": "Teamwork, casual campus games, movement, and friendly competition.", "Writing": "Stories, journalism, poetry, reflection, and communicating complex ideas."}
-        index = st.session_state.interest_index % len(options)
-        interest = options[index]
-        st.progress((index + 1) / len(options), text=f"Topic {index + 1} of {len(options)}")
-        focus, selected_panel = st.columns([1.45, 1])
-        with focus:
-            st.markdown(f'<div class="interest-focus"><div class="eyebrow">TOPIC TO EXPLORE</div><h2>{interest}</h2><div class="muted">{descriptions[interest]}</div></div>', unsafe_allow_html=True)
-            skip, save = st.columns(2)
-            with skip:
-                if st.button("Not for me", use_container_width=True):
-                    st.session_state.interest_index = (index + 1) % len(options)
-                    st.rerun()
-            with save:
-                is_saved = interest in st.session_state.interests
-                if st.button("Remove interest" if is_saved else "Save interest", type="primary", use_container_width=True):
-                    if is_saved: st.session_state.interests.remove(interest)
-                    elif len(st.session_state.interests) < 5: st.session_state.interests.append(interest)
-                    else: st.toast("You already saved five interests.")
-                    st.session_state.interest_index = (index + 1) % len(options)
-                    st.rerun()
-        with selected_panel:
-            st.markdown("#### Your saved interests")
-            st.caption(f"{len(st.session_state.interests)} of 5 selected")
-            if st.session_state.interests:
-                for saved in st.session_state.interests:
-                    st.markdown(f'<div class="card" style="padding:.7rem .9rem;margin-bottom:.45rem"><b>{saved}</b></div>', unsafe_allow_html=True)
-                remove = st.selectbox("Remove an interest", ["Keep all"] + st.session_state.interests)
-                if remove != "Keep all" and st.button("Remove selected", use_container_width=True):
-                    st.session_state.interests.remove(remove)
-                    st.rerun()
-            else:
-                st.info("Save a topic and it will appear here.")
+        st.markdown("## Choose your interests")
+        st.write("Tap every topic that interests you. Tap a selected topic again to remove it.")
+        st.caption(f"{len(st.session_state.interests)} selected")
+        for start in range(0, len(INTERESTS), 2):
+            for col, interest in zip(st.columns(2), INTERESTS[start:start + 2]):
+                with col:
+                    selected = interest in st.session_state.interests
+                    if st.button(interest, key=f"interest_{interest}", use_container_width=True, type="primary" if selected else "secondary"):
+                        if selected:
+                            st.session_state.interests.remove(interest)
+                        else: st.session_state.interests.append(interest)
+                        st.rerun()
     else:
         st.markdown("## This is how others will meet you")
         st.write("Add a quick introduction, review the live preview, or go back to change anything.")
@@ -258,14 +241,11 @@ def top_nav():
                 st.rerun()
     with st.container(key="bottom_nav"):
         cols = st.columns(5)
-        for col, label in zip(cols, ["Home", "Community", "Messages", "Profile", "Log out"]):
+        for col, label in zip(cols, ["Home", "Community", "Messages", "Games", "Profile"]):
             with col:
                 page = "Communications" if label == "Messages" else label
                 if st.button(label, use_container_width=True, type="primary" if st.session_state.page == page else "secondary"):
-                    if label == "Log out":
-                        st.session_state.logged_in = False
-                    else:
-                        st.session_state.page = page
+                    st.session_state.page = page
                     st.rerun()
     st.markdown("<div style='height:1.2rem'></div>", unsafe_allow_html=True)
 
@@ -296,29 +276,47 @@ def space_card(space, show_join=True):
 def home():
     name = st.session_state.name.split()[0]
     st.markdown(f"""<div class="hero"><div class="eyebrow" style="color:#83c5ff">Session II · {st.session_state.track}</div>
-    <h1>Good afternoon, {name}</h1><p>Your YYGS community is waking up. See what people are talking about, find an activity, or say hello.</p></div>""", unsafe_allow_html=True)
-    unread = sum(chat["unread"] for chat in st.session_state.inbox.values())
-    joined_events = sum(1 for event in st.session_state.events if event["joined"])
-    a, b, c = st.columns(3)
-    for col, value, label in [(a, unread, "Unread messages"), (b, len(st.session_state.joined), "Your spaces"), (c, joined_events, "Events saved")]:
-        with col: st.markdown(f'<div class="card"><div class="eyebrow">YOUR DAY</div><h2 style="margin:.3rem 0">{value}</h2><div class="muted">{label}</div></div>', unsafe_allow_html=True)
+    <h1>Good afternoon, {name}</h1><p>Make a plan, join a conversation, and spend less time scrolling.</p></div>""", unsafe_allow_html=True)
+
+    def minutes_for(label):
+        return datetime.strptime(label.strip(), "%I:%M %p").hour * 60 + datetime.strptime(label.strip(), "%I:%M %p").minute
+
+    events = sorted(st.session_state.events, key=lambda event: minutes_for(event["time"]))
     st.markdown("### Coming up today")
-    for col, event in zip(st.columns(3), st.session_state.events[:3]):
-        with col:
-            st.markdown(f'<div class="card"><div class="eyebrow">{event["time"]}</div><h3 style="font-size:1.05rem;margin:.5rem 0">{escape(event["title"])}</h3><div class="muted">{escape(event["location"])} · {event["going"]} going</div></div>', unsafe_allow_html=True)
-            if st.button("Saved" if event["joined"] else "RSVP", key=f"rsvp_{event['id']}", type="primary" if event["joined"] else "secondary", use_container_width=True):
-                event["joined"] = not event["joined"]
-                event["going"] += 1 if event["joined"] else -1
-                st.rerun()
+    feature, schedule = st.columns([1.15, 1.85])
+    with feature:
+        next_event = next((event for event in events if event["joined"]), events[0])
+        st.markdown(f'<div class="card" style="padding:1.6rem"><div class="eyebrow">YOUR NEXT PLAN · {next_event["time"]}</div><h2>{escape(next_event["title"])}</h2><p class="muted">{escape(next_event["location"])} · {next_event["going"]} people going</p></div>', unsafe_allow_html=True)
+        if st.button("Open private messages", use_container_width=True):
+            st.session_state.page = "Communications"
+            st.rerun()
+    with schedule:
+        event_filter = st.segmented_control("Schedule filter", ["All", "Going", "Hosting"], default="All", label_visibility="collapsed")
+        visible = [e for e in events if event_filter == "All" or (event_filter == "Going" and e["joined"]) or (event_filter == "Hosting" and e.get("hosted", False))]
+        for event in visible:
+            info, action = st.columns([4, 1], vertical_alignment="center")
+            with info:
+                st.markdown(f'<div class="card" style="padding:.75rem 1rem"><b>{event["time"]} &nbsp; {escape(event["title"])}</b><div class="muted">{escape(event["location"])} · {event["going"]} going</div></div>', unsafe_allow_html=True)
+            with action:
+                if st.button("Saved" if event["joined"] else "RSVP", key=f"rsvp_{event['id']}", type="primary" if event["joined"] else "secondary", use_container_width=True):
+                    event["joined"] = not event["joined"]
+                    event["going"] = max(0, event["going"] + (1 if event["joined"] else -1))
+                    st.rerun()
     with st.expander("Create an activity"):
         with st.form("new_event", clear_on_submit=True):
             title = st.text_input("Activity name")
-            event_time = st.text_input("Time", placeholder="4:30 PM")
+            time_options = [(datetime(2026, 1, 1, 7, 0) + __import__("datetime").timedelta(minutes=15 * i)).strftime("%I:%M %p").lstrip("0") for i in range(60)]
+            event_time = st.selectbox("Time", time_options, index=time_options.index("4:30 PM"))
             location = st.text_input("Location")
+            joined_names = [s["name"] for s in SPACES if s["id"] in st.session_state.joined]
+            share_space = st.selectbox("Share with a space", joined_names)
             create_event = st.form_submit_button("Create activity", type="primary")
         if create_event and title and event_time and location:
-            st.session_state.events.append({"id": int(datetime.now().timestamp()), "time": event_time, "title": title, "location": location, "going": 1, "joined": True})
+            event_id = int(datetime.now().timestamp())
+            st.session_state.events.append({"id": event_id, "time": event_time, "title": title, "location": location, "going": 1, "joined": True, "hosted": True})
+            st.session_state.posts.insert(0, {"id": event_id + 1, "initials": "YOU", "author": st.session_state.name, "meta": "Activities · Just now", "space": share_space, "text": f"{title} at {event_time} in {location}. Join us!", "reactions": {}, "comments": 0})
             st.session_state.notifications.append(f"Your activity “{title}” was created")
+            st.toast("Activity added to today’s schedule and the space channel.")
             st.rerun()
     st.markdown("### Your spaces")
     joined = [s for s in SPACES if s["id"] in st.session_state.joined]
@@ -360,7 +358,12 @@ def render_post(post):
                     st.session_state.reacted.add(key)
                 st.rerun()
     replies = st.session_state.post_replies.setdefault(post["id"], [])
-    with st.expander(f"Replies ({len(replies)})"):
+    is_open = post["id"] in st.session_state.reply_open
+    if st.button(("Hide" if is_open else "View") + f" replies ({len(replies)})", key=f"toggle_replies_{post['id']}"):
+        if is_open: st.session_state.reply_open.remove(post["id"])
+        else: st.session_state.reply_open.add(post["id"])
+        st.rerun()
+    if post["id"] in st.session_state.reply_open:
         for reply in replies:
             st.markdown(f'<div class="card" style="padding:.65rem .8rem"><b>{escape(st.session_state.name if reply.startswith("You: ") else "Community member")}</b><br>{escape(reply.removeprefix("You: "))}</div>', unsafe_allow_html=True)
         with st.form(f"reply_{post['id']}", clear_on_submit=True):
@@ -368,15 +371,17 @@ def render_post(post):
             add_reply = st.form_submit_button("Reply")
         if add_reply and reply_text.strip():
             replies.append("You: " + reply_text.strip())
+            st.session_state.reply_open.add(post["id"])
             post["comments"] = len(replies)
             st.session_state.notifications.append(f"Your reply was posted in {post['space']}")
             st.rerun()
 
 
 def communications():
-    st.markdown("## Communications")
-    st.write("Talk with your communities or continue a private conversation—all in one place.")
-    spaces_tab, inbox_tab = st.tabs(["Space conversations", "Private inbox"])
+    st.markdown("## Messages")
+    direct_unread = sum(chat["unread"] for chat in st.session_state.inbox.values())
+    st.write("Private conversations are shown first. Space channels remain one tap away.")
+    inbox_tab, spaces_tab = st.tabs([f"Private chats · {direct_unread} new", "Space channels"])
 
     with spaces_tab:
         joined_spaces = [s for s in SPACES if s["id"] in st.session_state.joined]
@@ -472,13 +477,164 @@ def communications():
                 st.markdown(f'<div class="comm-shell">{"".join(message_html)}</div>', unsafe_allow_html=True)
             else:
                 st.markdown('<div class="comm-shell"><div class="muted" style="text-align:center;padding:5rem 1rem">No messages yet. Introduce yourself and mention how you found them.</div></div>', unsafe_allow_html=True)
-            with st.form("private_message", clear_on_submit=True):
+            with st.form(f"private_message_{person}", clear_on_submit=True):
                 message_text = st.text_input("Message", placeholder=f"Message {person}…", label_visibility="collapsed")
                 sent = st.form_submit_button("Send message", type="primary")
             if sent and message_text.strip():
                 chat["messages"].append({"from": "me", "text": message_text.strip(), "time": datetime.now().strftime("%I:%M %p").lstrip("0"), "status": "Delivered"})
                 chat["last_activity"] = int(datetime.now().timestamp())
                 st.rerun()
+
+
+def games():
+    st.markdown("## Games")
+    st.write("Choose a game, decide how your group will play, and invite people you already know through YYGS Connect.")
+    catalog = {
+        "Mafia": {"code": "MF", "min": 5, "max": 12, "players": "5–12 players", "time": "20–35 min", "description": "Find the Mafia before they take control of the town."},
+        "Imposter": {"code": "IM", "min": 4, "max": 10, "players": "4–10 players", "time": "10–20 min", "description": "Give careful clues and uncover who never saw the secret word."},
+    }
+    for col, (name, game) in zip(st.columns(2), catalog.items()):
+        with col:
+            st.markdown(f'<div class="card" style="padding:1.5rem"><div class="space-icon">{game["code"]}</div><h2>{name}</h2><p>{game["description"]}</p><div class="muted">{game["players"]} · {game["time"]}</div></div>', unsafe_allow_html=True)
+            if st.button(f"Set up {name}", key=f"setup_{name}", type="primary", use_container_width=True):
+                st.session_state.selected_game = name
+
+    st.markdown(f"### Set up {st.session_state.selected_game}")
+    active_room = next((room for room in st.session_state.game_rooms if room.get("status") not in ["Complete", "Cancelled"]), None)
+    if active_room:
+        st.info(f"This device already has an active {active_room['game']} game. Complete or cancel it before creating another lobby.")
+    play_mode = "Online room"
+    st.info("Games now run entirely inside an online room. Chat, private actions, voting, and host controls are kept together in the room overlay.")
+    audience_type = st.radio("Play with", ["People", "A space"], horizontal=True)
+    with st.form("game_setup"):
+        if audience_type == "People":
+            audience = st.multiselect("Invite students", list(st.session_state.inbox), default=list(st.session_state.inbox)[:2])
+        else:
+            joined_spaces = [s["name"] for s in SPACES if s["id"] in st.session_state.joined]
+            audience = st.selectbox("Open lobby in", joined_spaces)
+        selected_meta = catalog[st.session_state.selected_game]
+        capacity = st.slider("Seats", selected_meta["min"], selected_meta["max"], max(6, selected_meta["min"]))
+        create_lobby = st.form_submit_button("Create game lobby", type="primary", disabled=active_room is not None)
+    if create_lobby and active_room is None:
+        room_id = int(datetime.now().timestamp())
+        invited = audience if isinstance(audience, list) else []
+        room = {"id": room_id, "game": st.session_state.selected_game, "mode": "Online room", "host": st.session_state.name, "audience": audience, "capacity": capacity, "status": "Lobby", "players": [st.session_state.name] + invited, "ready": {st.session_state.name}, "roles": {}, "phase": "Lobby", "alive": [], "round": 1, "secret": None, "imposter": None, "result": None, "actions": {}, "votes": {}, "clues": [], "chat": [{"author": "Game host", "text": "Welcome to the room. Chat, vote, and complete private game actions here."}]}
+        st.session_state.game_rooms.insert(0, room)
+        st.session_state.notifications.append(f"Your {room['game']} lobby is ready")
+        invite_text = f"{st.session_state.name} invited you to a {room['game']} game ({play_mode}). Open the Games tab to join."
+        if isinstance(audience, list):
+            for person in audience:
+                if person in st.session_state.inbox:
+                    st.session_state.inbox[person]["messages"].append({"from": "me", "text": invite_text, "time": "Just now", "status": "Delivered"})
+        else:
+            st.session_state.posts.insert(0, {"id": room_id + 1, "initials": "GAME", "author": st.session_state.name, "meta": "Activities · Game invitation", "space": audience, "text": invite_text, "reactions": {}, "comments": 0})
+        st.rerun()
+
+    if st.session_state.game_rooms:
+        st.markdown("### Your game lobbies")
+        for room in st.session_state.game_rooms:
+            room.setdefault("chat", [])
+            room.setdefault("host", st.session_state.name)
+            room.setdefault("actions", {})
+            room.setdefault("votes", {})
+            room.setdefault("clues", [])
+            st.markdown(f'<div class="card"><div class="eyebrow">{room["status"]} · {room.get("mode", "Pass one device")}</div><h3>{room["game"]}</h3><div class="muted">{len(room["players"])} of {room["capacity"]} seats · {escape(str(room["audience"]))}</div></div>', unsafe_allow_html=True)
+            with st.popover("Enter online game room", use_container_width=True):
+                    st.markdown(f"#### {room['game']} · {room['phase']}")
+                    st.caption(f"Host: {room['host']}. The host controls phase progression. Cross-device synchronization activates when the database is connected.")
+                    game_panel, chat_panel = st.tabs(["Game", "Room chat"])
+                    with chat_panel:
+                        chat_html = "".join(f'<div class="card" style="padding:.55rem .75rem"><b>{escape(message["author"])}</b><br>{escape(message["text"])}</div>' for message in room["chat"][-12:])
+                        st.markdown(f'<div class="comm-shell" style="height:240px">{chat_html or "<div class=muted>No room messages yet.</div>"}</div>', unsafe_allow_html=True)
+                        with st.form(f"game_chat_{room['id']}", clear_on_submit=True):
+                            room_message = st.text_input("Room message", placeholder="Message everyone in this game…", label_visibility="collapsed")
+                            send_room_message = st.form_submit_button("Send")
+                        if send_room_message and room_message.strip():
+                            room["chat"].append({"author": st.session_state.name, "text": room_message.strip()})
+                            st.rerun()
+                    with game_panel:
+                        st.markdown(" ".join(f'<span class="pill">{escape(player)} · {"Ready" if player in room.get("ready", set()) else "Invited"}</span>' for player in room["players"]), unsafe_allow_html=True)
+                        is_host = st.session_state.name == room["host"]
+                        if room["status"] == "Lobby":
+                            if is_host and st.button("Demo: fill and ready seats", key=f"fill_overlay_{room['id']}", use_container_width=True):
+                                while len(room["players"]) < room["capacity"]:
+                                    player = f"Player {len(room['players']) + 1}"
+                                    room["players"].append(player)
+                                room["ready"] = set(room["players"])
+                                st.rerun()
+                            minimum = catalog[room["game"]]["min"]
+                            can_start = len(room["players"]) >= minimum and len(room.get("ready", set())) == len(room["players"])
+                            if is_host and st.button("Host: start game", key=f"start_overlay_{room['id']}", type="primary", disabled=not can_start, use_container_width=True):
+                                players = room["players"][:]
+                                rng = random.Random(room["id"])
+                                rng.shuffle(players)
+                                if room["game"] == "Mafia":
+                                    mafia_count = 1 if len(players) <= 6 else 2 if len(players) <= 9 else 3
+                                    roles = ["Mafia"] * mafia_count + ["Doctor", "Detective"] + ["Villager"] * (len(players) - mafia_count - 2)
+                                    rng.shuffle(roles)
+                                    room["roles"] = dict(zip(players, roles))
+                                    room["phase"] = "Night actions"
+                                else:
+                                    room["secret"] = rng.choice(["Library", "Telescope", "Backpack", "Piano", "Volcano", "Museum", "Passport"])
+                                    room["imposter"] = rng.choice(players)
+                                    room["roles"] = {player: "Imposter" if player == room["imposter"] else "Player" for player in players}
+                                    room["phase"] = "Clues"
+                                room["alive"] = players[:]
+                                room["status"] = "Playing"
+                                room["chat"].append({"author": "Game", "text": f"The game has started. Current phase: {room['phase']}."})
+                                st.rerun()
+                        elif room["status"] == "Playing":
+                            role = room["roles"].get(st.session_state.name, "Spectator")
+                            st.info(f"Your private role: {role}" + (f" · Secret word: {room['secret']}" if room["game"] == "Imposter" and role == "Player" else ""))
+                            if room["game"] == "Mafia" and room["phase"] == "Night actions" and role in ["Mafia", "Doctor", "Detective"]:
+                                target = st.selectbox("Choose your private target", [p for p in room["alive"] if p != st.session_state.name], key=f"action_target_{room['id']}")
+                                if st.button("Submit private action", key=f"action_{room['id']}"):
+                                    room["actions"][role] = target
+                                    st.toast("Private action submitted.")
+                            if room["game"] == "Imposter" and room["phase"] == "Clues":
+                                with st.form(f"clue_{room['id']}", clear_on_submit=True):
+                                    clue = st.text_input("Submit your clue")
+                                    add_clue = st.form_submit_button("Add clue")
+                                if add_clue and clue.strip():
+                                    room["clues"].append({"player": st.session_state.name, "clue": clue.strip()})
+                                    room["chat"].append({"author": st.session_state.name, "text": f"Clue: {clue.strip()}"})
+                                    st.rerun()
+                            if room["phase"] == "Voting":
+                                vote = st.selectbox("Vote to eliminate", room["alive"], key=f"online_vote_{room['id']}")
+                                if st.button("Lock my vote", key=f"lock_vote_{room['id']}"):
+                                    room["votes"][st.session_state.name] = vote
+                                    st.toast("Vote recorded.")
+                            if is_host:
+                                if room["phase"] in ["Night actions", "Clues"] and st.button("Host: open discussion", key=f"discussion_{room['id']}", type="primary"):
+                                    if room["game"] == "Mafia":
+                                        killed = room["actions"].get("Mafia")
+                                        saved = room["actions"].get("Doctor")
+                                        if killed and killed != saved and killed in room["alive"]: room["alive"].remove(killed)
+                                        room["chat"].append({"author": "Game", "text": "Morning has arrived. Discuss what happened before voting."})
+                                    room["phase"] = "Discussion"
+                                    st.rerun()
+                                elif room["phase"] == "Discussion" and st.button("Host: open voting", key=f"voting_{room['id']}", type="primary"):
+                                    room["phase"] = "Voting"
+                                    room["votes"] = {}
+                                    st.rerun()
+                                elif room["phase"] == "Voting" and st.button("Host: resolve votes", key=f"resolve_{room['id']}", type="primary"):
+                                    if room["votes"]:
+                                        counts = {}
+                                        for choice in room["votes"].values(): counts[choice] = counts.get(choice, 0) + 1
+                                        suspect = max(counts, key=counts.get)
+                                    else:
+                                        suspect = room["alive"][0]
+                                    caught = room["roles"].get(suspect) in ["Mafia", "Imposter"]
+                                    room["status"] = "Complete"
+                                    room["phase"] = "Results"
+                                    room["result"] = f"{suspect} was eliminated. " + ("The hidden player was found." if caught else "The hidden player escaped.")
+                                    st.rerun()
+                        if room.get("result"): st.success(room["result"])
+                        if is_host and room["status"] not in ["Complete", "Cancelled"] and st.button("Host: cancel game", key=f"cancel_overlay_{room['id']}", use_container_width=True):
+                            room["status"] = "Cancelled"
+                            room["phase"] = "Cancelled"
+                            room["result"] = "This game was cancelled by the host."
+                            st.rerun()
 
 
 def profile():
@@ -496,17 +652,21 @@ def profile():
             photo = st.file_uploader("Update profile photo", type=["png", "jpg", "jpeg"], key="profile_photo_upload")
             if photo:
                 st.session_state.profile_photo = f"data:{photo.type};base64,{base64.b64encode(photo.getvalue()).decode()}"
-            countries = ["Argentina", "Australia", "Brazil", "Canada", "Chile", "China", "Colombia", "Egypt", "France", "Germany", "Ghana", "India", "Indonesia", "Italy", "Japan", "Kenya", "Mexico", "Morocco", "Netherlands", "Nigeria", "Pakistan", "Peru", "Philippines", "Poland", "Singapore", "South Africa", "South Korea", "Spain", "Sweden", "Thailand", "Turkey", "Ukraine", "United Kingdom", "United States", "Vietnam", "Other"]
             tracks = ["IST", "PLE", "SGC"]
-            st.session_state.country = st.selectbox("Country or region", countries, index=countries.index(st.session_state.country))
+            current_country = st.session_state.country if st.session_state.country in COUNTRIES else "Other"
+            st.session_state.country = st.selectbox("Country or region", COUNTRIES, index=COUNTRIES.index(current_country))
             st.session_state.track = st.radio("Academic track", tracks, index=tracks.index(st.session_state.track), horizontal=True)
-            st.session_state.interests = st.multiselect("Interests", ["Artificial Intelligence", "Biology", "Climate", "Debate", "Entrepreneurship", "Music", "Photography", "Public Speaking", "Sports", "Writing"], default=st.session_state.interests, max_selections=5)
+            st.session_state.interests = st.multiselect("Interests", INTERESTS, default=st.session_state.interests)
     with right:
         st.markdown("### Your YYGS journey")
         st.markdown(f'<div class="card"><b>{len(st.session_state.joined)} spaces joined</b><div class="muted">Keep exploring to find more people.</div><br><div class="progress-wrap"><div class="progress-fill" style="width:72%"></div></div><div class="muted" style="margin-top:.5rem">Profile 72% complete</div></div>', unsafe_allow_html=True)
         if st.button("Save profile", type="primary", use_container_width=True): st.toast("Profile saved!")
         st.markdown("### Program role")
         st.markdown(f'<div class="card"><div class="eyebrow">CURRENT ACCESS</div><h3>{st.session_state.role}</h3><div class="muted">Students can join spaces, message peers, create activities, and report content. Staff and moderators receive announcement and moderation controls.</div></div>', unsafe_allow_html=True)
+        st.markdown("### Account")
+        if st.button("Log out", use_container_width=True):
+            st.session_state.logged_in = False
+            st.rerun()
 
 
 init_state()
@@ -516,4 +676,4 @@ elif not st.session_state.onboarded:
     onboarding()
 else:
     top_nav()
-    {"Home": home, "Community": community, "Communications": communications, "Profile": profile}.get(st.session_state.page, home)()
+    {"Home": home, "Community": community, "Communications": communications, "Games": games, "Profile": profile}.get(st.session_state.page, home)()
