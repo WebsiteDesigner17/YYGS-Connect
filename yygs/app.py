@@ -3,6 +3,9 @@ from datetime import datetime
 from html import escape
 import base64
 import random
+import os
+from uuid import uuid4
+from supabase import create_client
 
 
 st.set_page_config(page_title="YYGS Connect", page_icon="🌐", layout="wide", initial_sidebar_state="collapsed")
@@ -90,9 +93,72 @@ STARTER_POSTS = [
 ]
 
 
+def get_supabase():
+    """Return a Supabase client owned by this Streamlit browser session."""
+    if "_supabase" not in st.session_state:
+        try:
+            url = st.secrets.get("SUPABASE_URL", os.getenv("SUPABASE_URL"))
+            key = st.secrets.get("SUPABASE_KEY", os.getenv("SUPABASE_KEY"))
+        except FileNotFoundError:
+            url, key = os.getenv("SUPABASE_URL"), os.getenv("SUPABASE_KEY")
+        if not url or not key:
+            raise RuntimeError("Supabase is not configured. Add SUPABASE_URL and SUPABASE_KEY to .streamlit/secrets.toml.")
+        st.session_state["_supabase"] = create_client(url, key)
+    return st.session_state["_supabase"]
+
+
+def _load_user_state(client, user, invitation_code=""):
+    """Load the authenticated profile, requiring one successful YYGS code redemption."""
+    redemptions = client.table("invitation_redemptions").select("user_id").eq("user_id", user.id).execute().data or []
+    if not redemptions:
+        if not invitation_code.strip():
+            return False, "Enter your invitation code to finish joining YYGS Connect."
+        redeemed = client.rpc("redeem_invitation_code", {"p_code": invitation_code.strip()}).execute().data
+        if not redeemed:
+            return False, "That invitation code is invalid, expired, already used, or has reached its limit."
+
+    profile_rows = client.table("profiles").select("*").eq("id", user.id).execute().data or []
+    if not profile_rows:
+        return False, "Your account was created, but its profile is not ready yet. Please try again in a moment."
+    profile = profile_rows[0]
+    role_rows = client.table("user_roles").select("role").eq("user_id", user.id).execute().data or []
+    st.session_state.auth_user_id = user.id
+    st.session_state.auth_email = user.email or ""
+    st.session_state.name = profile.get("full_name") or user.user_metadata.get("full_name") or "YYGS student"
+    st.session_state.country = profile.get("country") or "United States"
+    st.session_state.track = profile.get("track") or "IST"
+    st.session_state.session_number = profile.get("session_number") or 2
+    st.session_state.bio = profile.get("bio") or ""
+    st.session_state.interests = profile.get("interests") or []
+    st.session_state.profile_photo = profile.get("avatar_url")
+    st.session_state.onboarded = bool(profile.get("onboarding_complete"))
+    st.session_state.tos_agreed = bool(profile.get("tos_accepted_at"))
+    st.session_state.role = (role_rows[0]["role"] if role_rows else "student").title()
+    st.session_state.logged_in = True
+    return True, ""
+
+
+def save_current_profile(onboarding_complete=None):
+    client = get_supabase()
+    payload = {
+        "full_name": st.session_state.name.strip(),
+        "country": st.session_state.country,
+        "track": st.session_state.track,
+        "session_number": st.session_state.session_number,
+        "bio": st.session_state.bio.strip() or None,
+        "interests": st.session_state.interests,
+        "updated_at": datetime.now().astimezone().isoformat(),
+    }
+    if st.session_state.profile_photo and not str(st.session_state.profile_photo).startswith("data:"):
+        payload["avatar_url"] = st.session_state.profile_photo
+    if onboarding_complete is not None:
+        payload["onboarding_complete"] = onboarding_complete
+    client.table("profiles").update(payload).eq("id", st.session_state.auth_user_id).execute()
+
+
 def init_state():
     defaults = {
-        "logged_in": False, "onboarded": False, "page": "Home", "name": "Chase",
+        "logged_in": False, "onboarded": False, "page": "Home", "name": "",
         "country": "United States", "track": "IST", "interests": ["Artificial Intelligence", "Entrepreneurship"],
         "bio": "Curious about technology, entrepreneurship, and meeting people who see problems differently.",
         "role": "Student", "profile_photo": None, "tos_agreed": False,
@@ -107,6 +173,7 @@ def init_state():
         "communications_mode": "Private chats", "reply_open": set(), "compose_open": False,
         "event_filter": "All", "game_rooms": [], "selected_game": "Mafia",
         "active_space": "IST 2026", "active_chat": "Amara Mensah",
+        "active_conversation_id": None, "auth_user_id": None, "auth_email": "", "session_number": 2,
         "inbox": {
             "Amara Mensah": {"initials": "AM", "detail": "IST · Ghana", "unread": 2, "messages": [
                 {"from": "them", "text": "Hi! I saw that you’re also interested in artificial intelligence.", "time": "2:14 PM"},
@@ -141,27 +208,72 @@ def login():
     left, mid, right = st.columns([1, 1.15, 1])
     with mid:
         with st.container(border=True):
-            st.markdown("### Welcome to your community")
-            st.caption("Sign in using the invitation code included with your admission.")
-            name = st.text_input("Your name", placeholder="e.g. Chase Marshall")
-            code = st.text_input("Invitation code", placeholder="Try YYGS-2026")
-            st.text_input("Password", type="password", placeholder="••••••••")
-            with st.expander("Community agreement and Terms of Service"):
-                st.caption("Be respectful, protect others’ privacy, do not share access codes, and report unsafe behavior. YYGS Connect may remove content or accounts that violate these standards.")
-            agreed = st.checkbox("I agree to the Terms of Service and community standards")
-            if st.button("Continue", type="primary", use_container_width=True):
-                if name and code == "YYGS-2026" and agreed:
-                    st.session_state.name = name
-                    st.session_state.tos_agreed = True
-                    st.session_state.logged_in = True
-                    st.rerun()
-                elif not agreed:
-                    st.warning("Please accept the community agreement before continuing.")
-                elif code and code != "YYGS-2026":
-                    st.error("That invitation code is not valid. Use YYGS-2026.")
-                else:
-                    st.warning("Enter your name and invitation code to continue.")
-            st.caption("Prototype invitation code: YYGS-2026")
+            try:
+                client = get_supabase()
+            except RuntimeError as error:
+                st.error(str(error))
+                return
+            sign_in_tab, sign_up_tab = st.tabs(["Sign in", "Create account"])
+            with sign_in_tab:
+                st.markdown("### Welcome back")
+                with st.form("sign_in_form"):
+                    email = st.text_input("Email address", key="sign_in_email")
+                    password = st.text_input("Password", type="password", key="sign_in_password")
+                    code = st.text_input("Invitation code", placeholder="Needed only the first time you sign in")
+                    submitted = st.form_submit_button("Sign in", type="primary", use_container_width=True)
+                if submitted:
+                    try:
+                        response = client.auth.sign_in_with_password({"email": email.strip(), "password": password})
+                        if not response.user:
+                            st.error("We could not sign you in. Check your email and password.")
+                        else:
+                            loaded, message = _load_user_state(client, response.user, code)
+                            if loaded:
+                                st.rerun()
+                            else:
+                                st.warning(message)
+                    except Exception:
+                        st.error("We could not sign you in. Check your email, password, and invitation code.")
+            with sign_up_tab:
+                st.markdown("### Create your YYGS account")
+                with st.form("sign_up_form"):
+                    name = st.text_input("Full name", placeholder="e.g. Chase Marshall")
+                    email = st.text_input("Email address", key="sign_up_email")
+                    password = st.text_input("Create password", type="password", help="Use at least 8 characters.")
+                    confirm_password = st.text_input("Confirm password", type="password")
+                    code = st.text_input("YYGS invitation code", placeholder="Enter your admission code")
+                    with st.expander("Community agreement and Terms of Service"):
+                        st.caption("Be respectful, protect others’ privacy, do not share access codes, and report unsafe behavior. YYGS Connect may remove content or accounts that violate these standards.")
+                    agreed = st.checkbox("I agree to the Terms of Service and community standards", key="sign_up_terms")
+                    submitted = st.form_submit_button("Create account", type="primary", use_container_width=True)
+                if submitted:
+                    if not all([name.strip(), email.strip(), password, code.strip()]):
+                        st.warning("Complete every required field to create an account.")
+                    elif password != confirm_password:
+                        st.warning("The two passwords do not match.")
+                    elif len(password) < 8:
+                        st.warning("Use a password with at least 8 characters.")
+                    elif not agreed:
+                        st.warning("Accept the community agreement before continuing.")
+                    else:
+                        try:
+                            response = client.auth.sign_up({
+                                "email": email.strip(),
+                                "password": password,
+                                "options": {"data": {"full_name": name.strip()}},
+                            })
+                            if response.session and response.user:
+                                loaded, message = _load_user_state(client, response.user, code)
+                                if loaded:
+                                    client.rpc("accept_terms").execute()
+                                    st.session_state.tos_agreed = True
+                                    st.rerun()
+                                else:
+                                    st.warning(message)
+                            else:
+                                st.success("Check your email to confirm your account, then sign in here and enter your invitation code.")
+                        except Exception:
+                            st.error("We could not create that account. The email may already be registered, or the password may not meet Supabase’s requirements.")
 
 
 def onboarding():
@@ -221,9 +333,19 @@ def onboarding():
             st.rerun()
     with onward:
         if st.button("Enter YYGS Connect" if step == 4 else "Next", type="primary", use_container_width=True):
-            if step == 4: st.session_state.onboarded = True
-            else: st.session_state.onboarding_step += 1
-            st.rerun()
+            if step == 4:
+                try:
+                    save_current_profile(onboarding_complete=True)
+                    if not st.session_state.tos_agreed:
+                        get_supabase().rpc("accept_terms").execute()
+                    st.session_state.tos_agreed = True
+                    st.session_state.onboarded = True
+                    st.rerun()
+                except Exception:
+                    st.error("We could not save your profile yet. Check your connection and try again.")
+            else:
+                st.session_state.onboarding_step += 1
+                st.rerun()
 
 
 def top_nav():
@@ -377,6 +499,91 @@ def render_post(post):
             st.rerun()
 
 
+@st.fragment(run_every="2s")
+def render_database_inbox():
+    """Database-backed direct messages; refreshes every two seconds for both participants."""
+    client = get_supabase()
+    user_id = st.session_state.auth_user_id
+    try:
+        conversations = client.rpc("get_my_conversations").execute().data or []
+    except Exception:
+        st.error("Your inbox could not be loaded right now.")
+        return
+
+    people, thread = st.columns([1, 2.25])
+    with people:
+        st.markdown("#### Private chats")
+        search = st.text_input("Search conversations", placeholder="Search students", label_visibility="collapsed", key="db_chat_search")
+        visible = [c for c in conversations if search.lower() in (c.get("other_full_name") or "").lower() and not c.get("archived")]
+        for conversation in visible:
+            name = conversation.get("other_full_name") or "YYGS student"
+            initials = "".join(part[0] for part in name.split()[:2]).upper() or "YS"
+            unread = int(conversation.get("unread_count") or 0)
+            avatar_col, button_col = st.columns([.32, 1.68], vertical_alignment="center")
+            with avatar_col:
+                st.markdown(f'<div class="mini-avatar">{escape(initials)}</div>', unsafe_allow_html=True)
+            with button_col:
+                label = f"{name}{f'  ({unread} new)' if unread else ''}\n\n{conversation.get('last_message') or 'Start a conversation'}"
+                if st.button(label, key=f"db_chat_{conversation['conversation_id']}", use_container_width=True, type="primary" if st.session_state.active_conversation_id == conversation["conversation_id"] else "secondary"):
+                    st.session_state.active_conversation_id = conversation["conversation_id"]
+                    try: client.rpc("mark_conversation_read", {"p_conversation_id": conversation["conversation_id"]}).execute()
+                    except Exception: pass
+                    st.rerun()
+
+        with st.expander("Start a conversation"):
+            try:
+                directory = client.table("profiles").select("id,full_name,country,track").neq("id", user_id).order("full_name").execute().data or []
+            except Exception:
+                directory = []
+            if directory:
+                choices = {f"{person['full_name'] or 'YYGS student'} · {person.get('track') or 'YYGS'}": person["id"] for person in directory}
+                selected_label = st.selectbox("Find a student", list(choices), key="db_new_chat_person")
+                if st.button("Open private chat", use_container_width=True):
+                    try:
+                        conversation_id = client.rpc("get_or_create_direct_conversation", {"p_other_user": choices[selected_label]}).execute().data
+                        st.session_state.active_conversation_id = conversation_id
+                        st.rerun()
+                    except Exception:
+                        st.error("That conversation could not be opened yet.")
+            else:
+                st.caption("Other admitted students will appear here as they join YYGS Connect.")
+
+    with thread:
+        if conversations and st.session_state.active_conversation_id not in {c["conversation_id"] for c in conversations}:
+            st.session_state.active_conversation_id = conversations[0]["conversation_id"]
+        active = next((c for c in conversations if c["conversation_id"] == st.session_state.active_conversation_id), None)
+        if not active:
+            st.markdown('<div class="comm-shell"><div class="muted" style="text-align:center;padding:5rem 1rem">Choose a student to start a private conversation.</div></div>', unsafe_allow_html=True)
+            return
+
+        conversation_id = active["conversation_id"]
+        name = active.get("other_full_name") or "YYGS student"
+        initials = "".join(part[0] for part in name.split()[:2]).upper() or "YS"
+        st.markdown(f'<div class="thread-title"><div class="mini-avatar">{escape(initials)}</div><div><h3 style="margin:0">{escape(name)}</h3><div class="muted">Synced private conversation</div></div></div>', unsafe_allow_html=True)
+        try:
+            client.rpc("mark_conversation_read", {"p_conversation_id": conversation_id}).execute()
+            messages = client.table("messages").select("id,sender_id,body,created_at").eq("conversation_id", conversation_id).is_("deleted_at", "null").order("created_at").execute().data or []
+        except Exception:
+            messages = []
+        message_html = []
+        for message in messages:
+            outgoing = message["sender_id"] == user_id
+            bubble = "message-out" if outgoing else "message-in"
+            stamp = (message.get("created_at") or "").replace("T", " ")[:16]
+            status = "Sent" if outgoing else ""
+            message_html.append(f'<div class="{bubble}">{escape(message["body"])}<div class="message-time">{escape(stamp)} {status}</div></div>')
+        st.markdown(f'<div class="comm-shell">{"".join(message_html) or "<div class=muted style=\"display:block;text-align:center;padding:5rem 1rem\">No messages yet. Say hello.</div>"}</div>', unsafe_allow_html=True)
+        with st.form(f"db_message_{conversation_id}", clear_on_submit=True):
+            body = st.text_input("Message", placeholder=f"Message {name}…", label_visibility="collapsed")
+            sent = st.form_submit_button("Send message", type="primary")
+        if sent and body.strip():
+            try:
+                client.table("messages").insert({"conversation_id": conversation_id, "sender_id": user_id, "body": body.strip()}).execute()
+                st.rerun()
+            except Exception:
+                st.error("Your message could not be sent. Please try again.")
+
+
 def communications():
     st.markdown("## Messages")
     direct_unread = sum(chat["unread"] for chat in st.session_state.inbox.values())
@@ -421,6 +628,9 @@ def communications():
                     st.info("No posts here yet. Start the first conversation.")
 
     with inbox_tab:
+        if st.session_state.auth_user_id:
+            render_database_inbox()
+            return
         people, thread = st.columns([1, 2.25])
         with people:
             st.markdown("#### Inbox")
@@ -660,12 +870,24 @@ def profile():
     with right:
         st.markdown("### Your YYGS journey")
         st.markdown(f'<div class="card"><b>{len(st.session_state.joined)} spaces joined</b><div class="muted">Keep exploring to find more people.</div><br><div class="progress-wrap"><div class="progress-fill" style="width:72%"></div></div><div class="muted" style="margin-top:.5rem">Profile 72% complete</div></div>', unsafe_allow_html=True)
-        if st.button("Save profile", type="primary", use_container_width=True): st.toast("Profile saved!")
+        if st.button("Save profile", type="primary", use_container_width=True):
+            try:
+                save_current_profile()
+                st.toast("Profile saved!")
+            except Exception:
+                st.error("Your profile could not be saved. Please try again.")
         st.markdown("### Program role")
         st.markdown(f'<div class="card"><div class="eyebrow">CURRENT ACCESS</div><h3>{st.session_state.role}</h3><div class="muted">Students can join spaces, message peers, create activities, and report content. Staff and moderators receive announcement and moderation controls.</div></div>', unsafe_allow_html=True)
         st.markdown("### Account")
         if st.button("Log out", use_container_width=True):
+            try:
+                get_supabase().auth.sign_out()
+            except Exception:
+                pass
+            for key in ["_supabase", "auth_user_id", "auth_email", "active_conversation_id"]:
+                st.session_state.pop(key, None)
             st.session_state.logged_in = False
+            st.session_state.onboarded = False
             st.rerun()
 
 
