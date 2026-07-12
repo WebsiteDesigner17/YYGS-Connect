@@ -160,6 +160,47 @@ def save_current_profile(onboarding_complete=None):
     client.table("profiles").update(payload).eq("id", st.session_state.auth_user_id).execute()
 
 
+def upload_media(uploaded_file, folder):
+    """Store an image once in Supabase Storage and retain only its private path."""
+    if not uploaded_file:
+        return None
+    content = uploaded_file.getvalue()
+    fingerprint = f"{folder}:{uploaded_file.name}:{len(content)}:{hash(content)}"
+    cached = st.session_state.setdefault("uploaded_media", {})
+    if fingerprint in cached:
+        return cached[fingerprint]
+    extension = (uploaded_file.name.rsplit(".", 1)[-1] if "." in uploaded_file.name else "jpg").lower()
+    path = f"{st.session_state.auth_user_id}/{folder}/{uuid4().hex}.{extension}"
+    get_supabase().storage.from_("yygsync-media").upload(
+        path, content, {"content-type": uploaded_file.type or "image/jpeg", "upsert": "false"}
+    )
+    cached[fingerprint] = path
+    return path
+
+
+def media_url(path):
+    """Create a short-lived URL; the media bucket itself remains private."""
+    if not path or str(path).startswith("data:"):
+        return path
+    try:
+        response = get_supabase().storage.from_("yygsync-media").create_signed_url(path, 3600)
+        return response.get("signedURL") or response.get("signed_url") or path
+    except Exception:
+        return None
+
+
+def load_shared_activities():
+    rows = get_supabase().table("activities").select("*").order("starts_at").execute().data or []
+    attendance = get_supabase().table("activity_attendees").select("activity_id,user_id").execute().data or []
+    counts, mine = {}, set()
+    for entry in attendance:
+        counts[entry["activity_id"]] = counts.get(entry["activity_id"], 0) + 1
+        if entry["user_id"] == st.session_state.auth_user_id:
+            mine.add(entry["activity_id"])
+    return [{**row, "going": counts.get(row["id"], 0), "joined": row["id"] in mine,
+             "hosted": row["creator_id"] == st.session_state.auth_user_id} for row in rows]
+
+
 def init_state():
     defaults = {
         "logged_in": False, "onboarded": False, "page": "Home", "name": "",
@@ -203,7 +244,9 @@ def init_state():
 
 def avatar_html(initials, size=68):
     if st.session_state.profile_photo:
-        return f'<img class="photo-avatar" style="width:{size}px;height:{size}px" src="{st.session_state.profile_photo}" alt="Profile photo">'
+        url = media_url(st.session_state.profile_photo)
+        if url:
+            return f'<img class="photo-avatar" style="width:{size}px;height:{size}px" src="{url}" alt="Profile photo">'
     return f'<div class="avatar" style="width:{size}px;height:{size}px;background:white;color:#1f5eff">{escape(initials)}</div>'
 
 
@@ -329,7 +372,7 @@ def onboarding():
         with left:
             photo = st.file_uploader("Profile photo", type=["png", "jpg", "jpeg"], help="Choose a square photo for the best crop.")
             if photo:
-                st.session_state.profile_photo = f"data:{photo.type};base64,{base64.b64encode(photo.getvalue()).decode()}"
+                st.session_state.profile_photo = upload_media(photo, "profiles")
             st.session_state.bio = st.text_area("One or two sentence bio", value=st.session_state.bio, max_chars=220, height=120)
             st.caption("Share what you’re curious about and what you would enjoy doing at YYGS.")
         with right:
@@ -413,7 +456,10 @@ def home():
     def minutes_for(label):
         return datetime.strptime(label.strip(), "%I:%M %p").hour * 60 + datetime.strptime(label.strip(), "%I:%M %p").minute
 
-    events = sorted(st.session_state.events, key=lambda event: minutes_for(event["time"]))
+    shared_events = load_shared_activities()
+    for event in shared_events:
+        event["time"] = datetime.fromisoformat(event["starts_at"].replace("Z", "+00:00")).astimezone().strftime("%I:%M %p").lstrip("0")
+    events = sorted(st.session_state.events + shared_events, key=lambda event: minutes_for(event["time"]))
     st.markdown("### Coming up today")
     feature, schedule = st.columns([1.15, 1.85])
     with feature:
@@ -431,8 +477,15 @@ def home():
                 st.markdown(f'<div class="card" style="padding:.75rem 1rem"><b>{event["time"]} &nbsp; {escape(event["title"])}</b><div class="muted">{escape(event["location"])} · {event["going"]} going</div></div>', unsafe_allow_html=True)
             with action:
                 if st.button("Saved" if event["joined"] else "RSVP", key=f"rsvp_{event['id']}", type="primary" if event["joined"] else "secondary", use_container_width=True):
-                    event["joined"] = not event["joined"]
-                    event["going"] = max(0, event["going"] + (1 if event["joined"] else -1))
+                    if event.get("shared"):
+                        table = get_supabase().table("activity_attendees")
+                        if event["joined"]:
+                            table.delete().eq("activity_id", event["id"]).eq("user_id", st.session_state.auth_user_id).execute()
+                        else:
+                            table.insert({"activity_id": event["id"], "user_id": st.session_state.auth_user_id}).execute()
+                    else:
+                        event["joined"] = not event["joined"]
+                        event["going"] = max(0, event["going"] + (1 if event["joined"] else -1))
                     st.rerun()
     with st.expander("Create an activity"):
         with st.form("new_event", clear_on_submit=True):
@@ -442,8 +495,20 @@ def home():
             location = st.text_input("Location")
             joined_names = [s["name"] for s in SPACES if s["id"] in st.session_state.joined]
             share_space = st.selectbox("Share with a space", joined_names)
+            activity_image = st.file_uploader("Activity image (optional)", type=["png", "jpg", "jpeg", "webp"])
             create_event = st.form_submit_button("Create activity", type="primary")
         if create_event and title and event_time and location:
+            try:
+                image_path = upload_media(activity_image, "activities")
+                parsed = datetime.strptime(event_time, "%I:%M %p")
+                starts_at = datetime.now().replace(hour=parsed.hour, minute=parsed.minute, second=0, microsecond=0).astimezone().isoformat()
+                created = get_supabase().table("activities").insert({"creator_id": st.session_state.auth_user_id, "title": title.strip(), "starts_at": starts_at, "location": location.strip(), "space_name": share_space, "image_path": image_path}).execute().data[0]
+                get_supabase().table("activity_attendees").insert({"activity_id": created["id"], "user_id": st.session_state.auth_user_id}).execute()
+                st.toast("Activity shared with YYGSync.")
+                st.rerun()
+            except Exception as error:
+                st.error(f"We could not create that activity: {error}")
+                return
             event_id = int(datetime.now().timestamp())
             st.session_state.events.append({"id": event_id, "time": event_time, "title": title, "location": location, "going": 1, "joined": True, "hosted": True})
             st.session_state.posts.insert(0, {"id": event_id + 1, "initials": "YOU", "author": st.session_state.name, "meta": "Activities · Just now", "space": share_space, "text": f"{title} at {event_time} in {location}. Join us!", "reactions": {}, "comments": 0})
@@ -706,7 +771,104 @@ def communications():
                 st.rerun()
 
 
+def shared_games():
+    """Database-backed lobbies, chat, readiness, actions, and host progression."""
+    catalog = {
+        "Mafia": {"min": 5, "max": 12, "description": "Find the Mafia before they take control of the town."},
+        "Imposter": {"min": 4, "max": 10, "description": "Give clues and find the player without the secret word."},
+    }
+    st.markdown("## Games")
+    st.caption("Every lobby, player, message, vote, and phase is saved to the shared YYGSync database.")
+    rooms = get_supabase().table("game_rooms").select("*").order("created_at", desc=True).execute().data or []
+    players = get_supabase().table("game_players").select("*").execute().data or []
+    roster_by_room = {}
+    for player in players:
+        roster_by_room.setdefault(player["room_id"], []).append(player)
+
+    with st.expander("Create an online game lobby"):
+        with st.form("shared_game_setup", clear_on_submit=True):
+            game_type = st.selectbox("Game", list(catalog))
+            audience_type = st.radio("Invite through", ["People", "A space"], horizontal=True)
+            if audience_type == "People":
+                audience_label = st.text_input("Who is this for?", placeholder="e.g. Amara and Leo")
+            else:
+                audience_label = st.selectbox("Space", [s["name"] for s in SPACES if s["id"] in st.session_state.joined])
+            seats = st.slider("Seats", catalog[game_type]["min"], catalog[game_type]["max"], catalog[game_type]["min"])
+            make_room = st.form_submit_button("Create shared lobby", type="primary")
+        if make_room:
+            try:
+                audience_kind = "people" if audience_type == "People" else "space"
+                room = get_supabase().table("game_rooms").insert({"game_type": game_type, "host_id": st.session_state.auth_user_id, "audience_type": audience_kind, "audience_label": audience_label.strip() or "YYGSync students", "capacity": seats}).execute().data[0]
+                get_supabase().table("game_players").insert({"room_id": room["id"], "user_id": st.session_state.auth_user_id, "display_name": st.session_state.name, "ready": True}).execute()
+                st.toast("Shared game lobby created.")
+                st.rerun()
+            except Exception as error:
+                st.error(f"We could not create this game lobby: {error}")
+
+    st.markdown("### Live game rooms")
+    if not rooms:
+        st.info("No live rooms yet. Create the first one for your cohort.")
+    for room in rooms:
+        roster = roster_by_room.get(room["id"], [])
+        joined = any(player["user_id"] == st.session_state.auth_user_id for player in roster)
+        host = room["host_id"] == st.session_state.auth_user_id
+        ready_count = sum(1 for player in roster if player["ready"])
+        st.markdown(f'<div class="card"><div class="eyebrow">{room["status"]} · {room["phase"]}</div><h3>{room["game_type"]}</h3><div class="muted">{len(roster)} of {room["capacity"]} seats · {escape(room["audience_label"])}</div></div>', unsafe_allow_html=True)
+        if not joined:
+            if st.button("Join lobby", key=f"join_shared_{room['id']}", disabled=room["status"] != "Lobby" or len(roster) >= room["capacity"], use_container_width=True):
+                try:
+                    get_supabase().table("game_players").insert({"room_id": room["id"], "user_id": st.session_state.auth_user_id, "display_name": st.session_state.name}).execute()
+                    st.rerun()
+                except Exception as error:
+                    st.error(f"That lobby could not be joined: {error}")
+            continue
+        with st.popover("Open online room", use_container_width=True):
+            st.markdown(f"#### {room['game_type']} · {room['phase']}")
+            st.markdown(" ".join(f'<span class="pill">{escape(player["display_name"])} · {"Ready" if player["ready"] else "Waiting"}</span>' for player in roster), unsafe_allow_html=True)
+            my_player = next(player for player in roster if player["user_id"] == st.session_state.auth_user_id)
+            if room["status"] == "Lobby" and not my_player["ready"] and st.button("I’m ready", key=f"ready_{room['id']}", use_container_width=True):
+                get_supabase().table("game_players").update({"ready": True}).eq("room_id", room["id"]).eq("user_id", st.session_state.auth_user_id).execute()
+                st.rerun()
+            minimum = catalog[room["game_type"]]["min"]
+            if host and room["status"] == "Lobby":
+                can_start = len(roster) >= minimum and ready_count == len(roster)
+                if st.button("Host: start game", key=f"start_shared_{room['id']}", type="primary", disabled=not can_start, use_container_width=True):
+                    phase = "Night actions" if room["game_type"] == "Mafia" else "Clues"
+                    get_supabase().table("game_rooms").update({"status": "Playing", "phase": phase, "updated_at": datetime.now().astimezone().isoformat()}).eq("id", room["id"]).execute()
+                    st.rerun()
+            messages = get_supabase().table("game_messages").select("sender_id,body,created_at").eq("room_id", room["id"]).order("created_at").execute().data or []
+            names = {player["user_id"]: player["display_name"] for player in roster}
+            chat_html = "".join(f'<div class="card" style="padding:.55rem .75rem"><b>{escape(names.get(message["sender_id"], "Player"))}</b><br>{escape(message["body"])}</div>' for message in messages[-15:])
+            st.markdown(f'<div class="comm-shell" style="height:210px">{chat_html or "<div class=muted>No room messages yet.</div>"}</div>', unsafe_allow_html=True)
+            with st.form(f"shared_game_chat_{room['id']}", clear_on_submit=True):
+                text = st.text_input("Room message", placeholder="Message everyone in this game…", label_visibility="collapsed")
+                send = st.form_submit_button("Send")
+            if send and text.strip():
+                get_supabase().table("game_messages").insert({"room_id": room["id"], "sender_id": st.session_state.auth_user_id, "body": text.strip()}).execute()
+                st.rerun()
+            if room["status"] == "Playing":
+                action_type = "clue" if room["phase"] == "Clues" else "vote" if room["phase"] == "Voting" else "target"
+                with st.form(f"shared_action_{room['id']}", clear_on_submit=True):
+                    action = st.text_input(f"Submit {action_type}", label_visibility="collapsed")
+                    submit_action = st.form_submit_button("Submit")
+                if submit_action and action.strip():
+                    get_supabase().table("game_actions").insert({"room_id": room["id"], "user_id": st.session_state.auth_user_id, "action_type": action_type, "payload": {"value": action.strip()}}).execute()
+                    st.toast("Your action was saved for this game.")
+                if host:
+                    phase_options = ["Discussion", "Voting", "Night actions" if room["game_type"] == "Mafia" else "Clues", "Results"]
+                    next_phase = st.selectbox("Host controls", phase_options, key=f"phase_{room['id']}")
+                    if st.button("Advance game", key=f"advance_{room['id']}", type="primary"):
+                        status = "Complete" if next_phase == "Results" else "Playing"
+                        get_supabase().table("game_rooms").update({"phase": next_phase, "status": status, "updated_at": datetime.now().astimezone().isoformat()}).eq("id", room["id"]).execute()
+                        st.rerun()
+            if host and room["status"] not in ["Complete", "Cancelled"] and st.button("Host: cancel game", key=f"cancel_shared_{room['id']}"):
+                get_supabase().table("game_rooms").update({"status": "Cancelled", "phase": "Cancelled", "updated_at": datetime.now().astimezone().isoformat()}).eq("id", room["id"]).execute()
+                st.rerun()
+
+
 def games():
+    shared_games()
+    return
     st.markdown("## Games")
     st.write("Choose a game, decide how your group will play, and invite people you already know through YYGSync.")
     catalog = {
@@ -871,7 +1033,7 @@ def profile():
         with st.expander("Edit profile details"):
             photo = st.file_uploader("Update profile photo", type=["png", "jpg", "jpeg"], key="profile_photo_upload")
             if photo:
-                st.session_state.profile_photo = f"data:{photo.type};base64,{base64.b64encode(photo.getvalue()).decode()}"
+                st.session_state.profile_photo = upload_media(photo, "profiles")
             tracks = ["IST", "PLE", "SGC"]
             current_country = st.session_state.country if st.session_state.country in COUNTRIES else "Other"
             st.session_state.country = st.selectbox("Country or region", COUNTRIES, index=COUNTRIES.index(current_country))
