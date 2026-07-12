@@ -153,6 +153,10 @@ def save_current_profile(onboarding_complete=None):
         payload["avatar_url"] = st.session_state.profile_photo
     if onboarding_complete is not None:
         payload["onboarding_complete"] = onboarding_complete
+        # Keep the agreement with the profile record so onboarding does not
+        # depend on a separate database function being present.
+        if onboarding_complete:
+            payload["tos_accepted_at"] = datetime.now().astimezone().isoformat()
     client.table("profiles").update(payload).eq("id", st.session_state.auth_user_id).execute()
 
 
@@ -232,8 +236,14 @@ def login():
                                 st.rerun()
                             else:
                                 st.warning(message)
-                    except Exception:
-                        st.error("We could not sign you in. Check your email, password, and invitation code.")
+                    except Exception as error:
+                        detail = str(error).lower()
+                        if "email not confirmed" in detail or "email_not_confirmed" in detail:
+                            st.error("This account was created while Supabase email confirmation was enabled. Turn off Confirm email in Supabase, delete this unconfirmed test user under Authentication → Users, then create the account again.")
+                        elif "invalid login credentials" in detail or "invalid_credentials" in detail:
+                            st.error("The email or password does not match an existing account. Create a new account first, or use the password you created for this email.")
+                        else:
+                            st.error("Sign-in failed. Please try again after checking your Supabase email-provider settings.")
             with sign_up_tab:
                 st.markdown("### Create your YYGS account")
                 with st.form("sign_up_form"):
@@ -265,8 +275,9 @@ def login():
                             if response.session and response.user:
                                 loaded, message = _load_user_state(client, response.user, code)
                                 if loaded:
-                                    client.rpc("accept_terms").execute()
-                                    st.session_state.tos_agreed = True
+                                    # The timestamp is persisted when the student
+                                    # finishes the onboarding profile.
+                                    st.session_state.tos_agreed = agreed
                                     st.rerun()
                                 else:
                                     st.warning(message)
@@ -336,13 +347,12 @@ def onboarding():
             if step == 4:
                 try:
                     save_current_profile(onboarding_complete=True)
-                    if not st.session_state.tos_agreed:
-                        get_supabase().rpc("accept_terms").execute()
                     st.session_state.tos_agreed = True
                     st.session_state.onboarded = True
                     st.rerun()
-                except Exception:
+                except Exception as error:
                     st.error("We could not save your profile yet. Check your connection and try again.")
+                    st.caption(f"Details for debugging: {error}")
             else:
                 st.session_state.onboarding_step += 1
                 st.rerun()
