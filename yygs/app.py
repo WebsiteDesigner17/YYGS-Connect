@@ -8,7 +8,7 @@ from uuid import uuid4
 from supabase import create_client
 
 
-st.set_page_config(page_title="YYGS Connect", page_icon="🌐", layout="wide", initial_sidebar_state="collapsed")
+st.set_page_config(page_title="YYGSync", page_icon="🌐", layout="wide", initial_sidebar_state="collapsed")
 
 st.markdown("""
 <style>
@@ -112,7 +112,7 @@ def _load_user_state(client, user, invitation_code=""):
     redemptions = client.table("invitation_redemptions").select("user_id").eq("user_id", user.id).execute().data or []
     if not redemptions:
         if not invitation_code.strip():
-            return False, "Enter your invitation code to finish joining YYGS Connect."
+            return False, "Enter your invitation code to finish joining YYGSync."
         redeemed = client.rpc("redeem_invitation_code", {"p_code": invitation_code.strip()}).execute().data
         if not redeemed:
             return False, "That invitation code is invalid, expired, already used, or has reached its limit."
@@ -204,7 +204,7 @@ def avatar_html(initials, size=68):
 
 
 def login():
-    st.markdown('<div class="login-shell"><div class="login-logo">YYGS Connect<span class="brand-dot">.</span></div><div class="center-copy">Meet your cohort before you meet on campus.</div></div>', unsafe_allow_html=True)
+    st.markdown('<div class="login-shell"><div class="login-logo">YYGSync<span class="brand-dot">.</span></div><div class="center-copy">Meet your cohort before you meet on campus.</div></div>', unsafe_allow_html=True)
     left, mid, right = st.columns([1, 1.15, 1])
     with mid:
         with st.container(border=True):
@@ -243,7 +243,7 @@ def login():
                     confirm_password = st.text_input("Confirm password", type="password")
                     code = st.text_input("YYGS invitation code", placeholder="Enter your admission code")
                     with st.expander("Community agreement and Terms of Service"):
-                        st.caption("Be respectful, protect others’ privacy, do not share access codes, and report unsafe behavior. YYGS Connect may remove content or accounts that violate these standards.")
+                        st.caption("Be respectful, protect others’ privacy, do not share access codes, and report unsafe behavior. YYGSync may remove content or accounts that violate these standards.")
                     agreed = st.checkbox("I agree to the Terms of Service and community standards", key="sign_up_terms")
                     submitted = st.form_submit_button("Create account", type="primary", use_container_width=True)
                 if submitted:
@@ -271,13 +271,13 @@ def login():
                                 else:
                                     st.warning(message)
                             else:
-                                st.success("Check your email to confirm your account, then sign in here and enter your invitation code.")
+                                st.error("Email confirmation is still enabled in Supabase. Turn off Confirm email in the Supabase Dashboard, then create the account again.")
                         except Exception:
                             st.error("We could not create that account. The email may already be registered, or the password may not meet Supabase’s requirements.")
 
 
 def onboarding():
-    st.markdown('<div class="brand">YYGS Connect<span class="brand-dot">.</span></div>', unsafe_allow_html=True)
+    st.markdown('<div class="brand">YYGSync<span class="brand-dot">.</span></div>', unsafe_allow_html=True)
     step = st.session_state.onboarding_step
     st.markdown("".join(f'<span class="step-dot {"active" if i == step else ""}"></span>' for i in range(1, 5)), unsafe_allow_html=True)
     st.caption(f"PROFILE SETUP · STEP {step} OF 4")
@@ -332,7 +332,7 @@ def onboarding():
             st.session_state.onboarding_step -= 1
             st.rerun()
     with onward:
-        if st.button("Enter YYGS Connect" if step == 4 else "Next", type="primary", use_container_width=True):
+        if st.button("Enter YYGSync" if step == 4 else "Next", type="primary", use_container_width=True):
             if step == 4:
                 try:
                     save_current_profile(onboarding_complete=True)
@@ -351,7 +351,7 @@ def onboarding():
 def top_nav():
     brand, notice = st.columns([5, 1])
     with brand:
-        st.markdown('<div class="brand">YYGS Connect<span class="brand-dot">.</span></div>', unsafe_allow_html=True)
+        st.markdown('<div class="brand">YYGSync<span class="brand-dot">.</span></div>', unsafe_allow_html=True)
     with notice:
         unread = len(st.session_state.notifications)
         with st.popover(f"Notifications ({unread})", use_container_width=True):
@@ -546,7 +546,7 @@ def render_database_inbox():
                     except Exception:
                         st.error("That conversation could not be opened yet.")
             else:
-                st.caption("Other admitted students will appear here as they join YYGS Connect.")
+                st.caption("Other admitted students will appear here as they join YYGSync.")
 
     with thread:
         if conversations and st.session_state.active_conversation_id not in {c["conversation_id"] for c in conversations}:
@@ -698,7 +698,7 @@ def communications():
 
 def games():
     st.markdown("## Games")
-    st.write("Choose a game, decide how your group will play, and invite people you already know through YYGS Connect.")
+    st.write("Choose a game, decide how your group will play, and invite people you already know through YYGSync.")
     catalog = {
         "Mafia": {"code": "MF", "min": 5, "max": 12, "players": "5–12 players", "time": "20–35 min", "description": "Find the Mafia before they take control of the town."},
         "Imposter": {"code": "IM", "min": 4, "max": 10, "players": "4–10 players", "time": "10–20 min", "description": "Give careful clues and uncover who never saw the secret word."},
